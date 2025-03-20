@@ -1,7 +1,6 @@
 package com.dudebehinddude.discord
 
-import com.dudebehinddude.discord.handlers.Mention
-import com.dudebehinddude.discord.handlers.RegisterableHandler
+import com.dudebehinddude.annotations.Handler
 import discord4j.core.DiscordClient
 import discord4j.core.GatewayDiscordClient
 import io.github.cdimascio.dotenv.dotenv
@@ -17,13 +16,12 @@ class Bot {
      * This function is where all the event handlers for the bot are registered.
      */
     private fun registerHandlers(gateway: GatewayDiscordClient) {
-        // All classes to register
-        val toRegister: List<RegisterableHandler> = listOf(
-            Mention(),
-        )
+        // Gets all handlers annotated with @Handler.
+        val toRegister = Handler.findAll()
 
-        for (item in toRegister) {
-            item.register(gateway)
+        for (handlerClass in toRegister) {
+            val handler = handlerClass.getDeclaredConstructor().newInstance()
+            handler.register(gateway)
         }
     }
 

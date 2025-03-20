@@ -1,18 +1,19 @@
 package com.dudebehinddude.discord.handlers
 
-import com.dudebehinddude.discord.handlers.RegisterableHandler
-import discord4j.core.DiscordClient
+import com.dudebehinddude.annotations.Handler
 import discord4j.core.GatewayDiscordClient
 import discord4j.core.event.domain.message.MessageCreateEvent
-import discord4j.core.`object`.entity.User
 import reactor.core.publisher.Mono
 
-class Mention : RegisterableHandler() {
+@Handler
+class Mention : RegistrableHandler() {
     override fun register(gateway: GatewayDiscordClient) {
+        println("Registering Mention")
         gateway.on(MessageCreateEvent::class.java)
             .flatMap { event ->
                 val message = event.message
                 val botId = message.client.selfId
+                println(message.content)
 
                 if (message.author == gateway.self) {
                     return@flatMap Mono.empty<GatewayDiscordClient>()

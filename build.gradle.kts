@@ -11,10 +11,10 @@ repositories {
 
 dependencies {
     testImplementation(kotlin("test"))
+    implementation("ch.qos.logback:logback-classic:1.4.12")
     implementation("io.github.cdimascio:dotenv-kotlin:6.4.1")
     implementation("com.discord4j:discord4j-core:3.2.7")
-    implementation(kotlin("stdlib")) // Explicitly include the Kotlin standard library
-    implementation(kotlin("stdlib-jdk8")) // JDK 8+ extensions
+    implementation("org.reflections:reflections:0.10.2")
 }
 
 tasks.test {
