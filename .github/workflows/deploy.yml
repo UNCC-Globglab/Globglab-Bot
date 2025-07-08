@@ -1,0 +1,32 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    environment: deploy
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Docker image
+        run: docker build . --file Dockerfile --tag globglabbot:${{ github.sha }}
+
+      - name: Create .env file from GitHub secret
+        run: |
+          echo "${{ secrets.DEPLOY_ENV_FILE }}" > ./.env
+
+      - name: Stop and remove old container (if exists)
+        run: |
+          docker stop globglabbot-container || true
+          docker rm globglabbot-container || true
+
+      - name: Run New Docker Container with Env File and Path
+        run: |
+          docker run -d \
+            -v "${{ secrets.DEPLOY_DOCKER_MOUNT_PATH }}:/app/data" \
+            --name globglabbot-container \
+            --env-file ./.env \
+            --restart unless-stopped \
+            globglabbot:${{ github.sha }}
