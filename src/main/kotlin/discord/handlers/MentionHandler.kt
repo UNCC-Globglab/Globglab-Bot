@@ -6,9 +6,8 @@ import discord4j.core.event.domain.message.MessageCreateEvent
 import reactor.core.publisher.Mono
 
 @Handler
-class Mention : RegistrableHandler() {
+class MentionHandler : RegistrableHandler {
     override fun register(gateway: GatewayDiscordClient) {
-        println("Registering Mention")
         gateway.on(MessageCreateEvent::class.java)
             .flatMap { event ->
                 val message = event.message
