@@ -37,3 +37,6 @@ bin/
 
 ### Secrets ###
 *.env
+
+### Other Data ###
+globglabbot_data.db

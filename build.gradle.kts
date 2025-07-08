@@ -15,6 +15,9 @@ dependencies {
     implementation("io.github.cdimascio:dotenv-kotlin:6.4.1")
     implementation("com.discord4j:discord4j-core:3.2.7")
     implementation("org.reflections:reflections:0.10.2")
+    implementation("org.jetbrains.exposed:exposed-jdbc:0.61.0")
+    implementation("org.jetbrains.exposed:exposed-core:0.61.0")
+    implementation("org.xerial:sqlite-jdbc:3.50.2.0")
 }
 
 tasks.test {
