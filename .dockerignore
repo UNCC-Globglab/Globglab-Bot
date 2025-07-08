@@ -34,10 +34,3 @@ bin/
 
 ### Mac OS ###
 .DS_Store
-
-### Secrets ###
-*.env
-
-### Other Data ###
-data/
-globglabbot_data.db

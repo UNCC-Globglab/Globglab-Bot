@@ -11,7 +11,7 @@ import reactor.core.publisher.Mono
 
 @Handler
 class SlashCommandHandler : RegistrableHandler {
-    private val dotenv = dotenv()
+    private val dotenv = dotenv { ignoreIfMissing = true }
     private val guildId: String? = dotenv["SLASH_COMMAND_GUILD_ID"] ?: System.getenv("SLASH_COMMAND_GUILD_ID")
 
     override fun register(gateway: GatewayDiscordClient) {

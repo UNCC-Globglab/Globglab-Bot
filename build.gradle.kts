@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm") version "2.1.0"
+    id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
 group = "com.dudebehinddude"
@@ -25,4 +26,10 @@ tasks.test {
 }
 kotlin {
     jvmToolchain(21)
+}
+
+tasks.shadowJar {
+    manifest {
+        attributes["Main-Class"] = "com.dudebehinddude.MainKt"
+    }
 }

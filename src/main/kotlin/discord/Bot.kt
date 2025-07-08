@@ -7,7 +7,7 @@ import io.github.cdimascio.dotenv.dotenv
 
 class Bot {
     // Attempt to get discord token
-    private val dotenv = dotenv()
+    private val dotenv = dotenv { ignoreIfMissing = true }
     private val token =
         dotenv["DISCORD_TOKEN"] ?: System.getenv("DISCORD_TOKEN") ?: error("No DISCORD_TOKEN env variable!")
     private val client: DiscordClient = DiscordClient.create(token)
