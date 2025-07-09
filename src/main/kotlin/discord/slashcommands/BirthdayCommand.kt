@@ -4,10 +4,12 @@ import com.dudebehinddude.annotations.SlashCommand
 import com.dudebehinddude.database.Users
 import discord.slashcommands.RegisterableSlashCommand
 import discord4j.common.util.Snowflake
+import discord4j.core.GatewayDiscordClient
 import discord4j.core.event.domain.interaction.ChatInputInteractionEvent
 import discord4j.core.`object`.command.ApplicationCommandInteractionOption
 import discord4j.core.`object`.command.ApplicationCommandInteractionOptionValue
 import discord4j.core.`object`.command.ApplicationCommandOption
+import discord4j.core.`object`.entity.User
 import discord4j.discordjson.json.ApplicationCommandOptionData
 import discord4j.discordjson.json.ApplicationCommandRequest
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
@@ -103,33 +105,50 @@ class BirthdayCommand : RegisterableSlashCommand {
             .flatMap(ApplicationCommandInteractionOption::getValue)
             .map(ApplicationCommandInteractionOptionValue::asUser)
             .get()
-            .flatMap { user ->
-                val userId = user.id.asLong()
+            .flatMap { user -> getBirthdayInfo(user, event.client) }
+            .flatMap { message -> event.reply(message) }
+            .onErrorResume { error -> event.reply(error.message ?: "An unknown error occurred.") }
+    }
 
-                val birthdayData = transaction {
-                    Users.selectAll()
-                        .where(Users.userid eq userId)
-                        .map { row ->
-                            Pair(
-                                row[Users.birthday],
-                                row[Users.birthdayCreatorId]
-                            )
-                        }
-                        .firstOrNull()
-                }
-
-                if (birthdayData == null) {
-                    return@flatMap event.reply("**${user.globalName.orElse(user.username)}** does not have a birthday. Perhaps suggest one with `/birthday add`?")
-                }
-
-                birthdayData.let { (birthday, creatorId) ->
-                    val client = event.client
-                    return@flatMap client.getUserById(Snowflake.of(creatorId)).flatMap { creatorUser ->
-                        val creatorUserName = creatorUser.globalName.orElse(creatorUser.username)
-                        event.reply("Birthday: $birthday. Suggested by $creatorUserName.")
+    private fun getBirthdayInfo(user: User, gatewayDiscordClient: GatewayDiscordClient): Mono<String> {
+        val userId = user.id.asLong()
+        return Mono.fromCallable {
+            transaction {
+                Users.selectAll()
+                    .where(Users.userid eq userId)
+                    .map { row ->
+                        Pair(
+                            Triple(
+                                row[Users.birthMonth],
+                                row[Users.birthDay],
+                                row[Users.birthYear],
+                            ),
+                            row[Users.birthdayCreatorId]
+                        )
                     }
-                }
+                    .firstOrNull()
+            } ?: Pair(null, null) // because otherwise the next part won't run if it's null apparently...?
+        }.flatMap { birthdayData ->
+            val dateData = birthdayData.first
+            val birthdayCreatorId = birthdayData.second
+
+            if (dateData?.first == null || dateData.second == null || birthdayCreatorId == null) {
+                return@flatMap Mono.error(IllegalStateException("${getUserName(user)} does not have a birthday. Perhaps suggest one with `/birthday add`?"))
             }
+
+            var birthdayString = "${dateData.first}/${dateData.second}"
+            if (dateData.third != null) birthdayString += "/${dateData.third}"
+
+            gatewayDiscordClient.getUserById(Snowflake.of(birthdayCreatorId)).flatMap { birthdayCreatorUser ->
+                val suggestionString = if (birthdayCreatorId == userId) {
+                    "Verified by ${getUserName(birthdayCreatorUser)}."
+                } else {
+                    "Suggested by ${getUserName(birthdayCreatorUser)}."
+                }
+
+                Mono.just("${getUserName(user)}'s birthday is $birthdayString.\n$suggestionString")
+            }
+        }
     }
 
     private fun addBirthday(
@@ -140,79 +159,103 @@ class BirthdayCommand : RegisterableSlashCommand {
             .flatMap(ApplicationCommandInteractionOption::getValue)
             .map(ApplicationCommandInteractionOptionValue::asUser)
             .orElse(Mono.just(event.interaction.user))
-            .flatMap { user ->
-                val queryUserId = user.id.asLong()
-                val queryUserName = user.globalName.orElse(user.username)
-                val callerUserId = event.interaction.user.id.asLong()
-
-                if (user.isBot) {
-                    return@flatMap event.reply("$queryUserName is a bot! Bot's can't have birthdays!")
-                }
-
-                val day = subcommand.getOption("day")
-                    .flatMap(ApplicationCommandInteractionOption::getValue)
-                    .map(ApplicationCommandInteractionOptionValue::asLong)
-                    .get()
-                val month = subcommand.getOption("month")
-                    .flatMap(ApplicationCommandInteractionOption::getValue)
-                    .map(ApplicationCommandInteractionOptionValue::asLong)
-                    .get()
-                val year = subcommand.getOption("year")
-                    .flatMap(ApplicationCommandInteractionOption::getValue)
-                    .map(ApplicationCommandInteractionOptionValue::asLong)
-                    .getOrNull()
-
-                // validate month as type Month
-                val monthMonth: Month = try {
-                    Month.of(month.toInt())
-                } catch (e: DateTimeException) {
-                    return@flatMap event.reply("**${month.toInt()}** is not a month.")
-                }
-
-                if (year != null) {
-                    // Year is provided, validate as LocalDate
-                    try {
-                        LocalDate.of(year.toInt(), monthMonth, day.toInt())
-                    } catch (e: DateTimeException) {
-                        return@flatMap event.reply("Invalid date (year, month, day): $year, $monthMonth, $day - ${e.message}")
-                    }
-                } else {
-                    // Year is not provided, validate as MonthDay
-                    try {
-                        MonthDay.of(monthMonth, day.toInt())
-                    } catch (e: DateTimeException) {
-                        return@flatMap event.reply("Invalid date (month, day): $monthMonth, $day - ${e.message}")
-                    }
-                }
-
-                var dateString = "$month/$day"
-                if (year != null) dateString += "/$year"
-
-                transaction {
-                    val existingBirthdayCreator = Users.selectAll()
-                        .where(Users.userid eq queryUserId)
-                        .map { row ->
-                            row[Users.birthdayCreatorId]
-                        }
-                        .firstOrNull()
-
-                    if (existingBirthdayCreator != null && existingBirthdayCreator != callerUserId) {
-                        // Throw an exception so the transaction does not continue
-                        throw IllegalStateException("$queryUserName has already set their birthday, so you cannot suggest one.")
-                    }
-
-                    Users.upsert {
-                        it[userid] = queryUserId
-                        it[birthday] = dateString
-                        it[birthdayCreatorId] = callerUserId
-                    }
-                }
-
-                event.reply("Set $queryUserName's birthday to $dateString!")
-                    .onErrorResume(IllegalStateException::class.java) { e ->
-                        event.reply("${e.message}")
-                    }
+            .flatMap { user -> validateCanHaveBirthday(user) }
+            .flatMap { user -> parseDateInput(subcommand).map { user to it } }
+            .flatMap { (user, dateInput) ->
+                updateBirthday(user, event, dateInput)
             }
+            .flatMap { successMessage -> event.reply(successMessage) }
+            .onErrorResume { error -> event.reply(error.message ?: "An unknown error occurred.") }
     }
 
+    private fun validateCanHaveBirthday(user: User): Mono<User> {
+        return if (user.isBot) {
+            Mono.error(IllegalArgumentException("${getUserName(user)} is a bot! Bots can't have birthdays!"))
+        } else {
+            Mono.just(user)
+        }
+    }
+
+    private fun parseDateInput(subcommand: ApplicationCommandInteractionOption): Mono<Triple<Int, Int, Int?>> {
+        return Mono.fromCallable {
+            val month = subcommand.getOption("month")
+                .flatMap(ApplicationCommandInteractionOption::getValue)
+                .map(ApplicationCommandInteractionOptionValue::asLong)
+                .get()
+            val day = subcommand.getOption("day")
+                .flatMap(ApplicationCommandInteractionOption::getValue)
+                .map(ApplicationCommandInteractionOptionValue::asLong)
+                .get()
+            val year = subcommand.getOption("year")
+                .flatMap(ApplicationCommandInteractionOption::getValue)
+                .map(ApplicationCommandInteractionOptionValue::asLong)
+                .getOrNull()
+
+            // validate month as type Month
+            val monthEnum: Month = try {
+                Month.of(month.toInt())
+            } catch (e: DateTimeException) {
+                throw IllegalArgumentException("Could not parse date: ${e.message}.")
+            }
+
+            try {
+                when (year) {
+                    null -> MonthDay.of(monthEnum, day.toInt())
+                    else -> LocalDate.of(year.toInt(), monthEnum, day.toInt())
+                }
+            } catch (e: DateTimeException) {
+                throw IllegalArgumentException("Could not parse date: ${e.message}")
+            }
+
+            Triple(month.toInt(), day.toInt(), year?.toInt())
+        }
+    }
+
+    private fun updateBirthday(
+        user: User,
+        event: ChatInputInteractionEvent,
+        dateInput: Triple<Int, Int, Int?>
+    ): Mono<String> {
+        return Mono.fromCallable {
+            val eventCallerId = event.interaction.user.id.asLong()
+            val userQueryId = user.id.asLong()
+            transaction {
+                val existingBirthdayCreator = Users.selectAll()
+                    .where(Users.userid eq userQueryId)
+                    .map { row ->
+                        row[Users.birthdayCreatorId]
+                    }
+                    .firstOrNull()
+
+                if (existingBirthdayCreator != null && existingBirthdayCreator != eventCallerId) {
+                    // Throw an exception so the transaction does not continue
+                    throw IllegalStateException("${getUserName(user)} has already set their birthday, so you cannot suggest one.")
+                }
+
+                Users.upsert {
+                    it[userid] = userQueryId
+                    it[birthMonth] = dateInput.first
+                    it[birthDay] = dateInput.second
+                    it[birthYear] = dateInput.third
+                    it[birthdayCreatorId] = eventCallerId
+                }
+            }
+
+            // return success string
+            return@fromCallable if (dateInput.third == null) {
+//                val monthDay = MonthDay.of(dateInput.first, dateInput.second)
+                "Set ${getUserName(user)}'s birthday to ${dateInput.first}/${dateInput.second}!"
+            } else {
+//                val localDate = LocalDate.of(dateInput.first, dateInput.second, dateInput.third!!)
+                "Set ${getUserName(user)}'s birthday to ${dateInput.first}/${dateInput.second}/${dateInput.third}!"
+            }
+        }
+    }
+
+    /**
+     * Temporary method until I set up embeds. Gets the user's username as an alternative to pinging them.
+     */
+    private fun getUserName(user: User): String {
+        return user.globalName.orElse(user.username)
+    }
 }

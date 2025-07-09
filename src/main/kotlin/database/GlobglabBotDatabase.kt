@@ -23,6 +23,9 @@ object GlobglabBotDatabase {
 
         transaction {
             SchemaUtils.create(Users)
+            SchemaUtils.addMissingColumnsStatements(Users).forEach { statement ->
+                exec(statement)
+            }
         }
     }
 }
