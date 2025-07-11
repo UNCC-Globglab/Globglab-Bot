@@ -107,7 +107,31 @@ class BirthdayCommand : RegisterableSlashCommand {
                             .type(ApplicationCommandOption.Type.INTEGER.value).required(false)
                             .build()
                     ).build()
-            ).build()
+            )
+            // remove subcommand
+            .addOption(
+                ApplicationCommandOptionData.builder()
+                    .name("remove")
+                    .description("Removes your birthday, or someone else's birthday if it isn't verified.")
+                    .type(ApplicationCommandOption.Type.SUB_COMMAND.value)
+                    .addOption(
+                        ApplicationCommandOptionData.builder()
+                            .name("user")
+                            .description("Removes this user's birthday if it isn't verified.")
+                            .type(ApplicationCommandOption.Type.USER.value)
+                            .build()
+                    )
+                    .build()
+            )
+            // verify subcommand
+            .addOption(
+                ApplicationCommandOptionData.builder()
+                    .name("verify")
+                    .description("Verifies a birthday someone else set for you.")
+                    .type(ApplicationCommandOption.Type.SUB_COMMAND.value)
+                    .build()
+            )
+            .build()
     }
 
     override fun execute(event: ChatInputInteractionEvent): Mono<Void> {
@@ -116,7 +140,7 @@ class BirthdayCommand : RegisterableSlashCommand {
             "display" -> displayBirthday(event, subcommand)
             "set" -> setBirthday(event, subcommand)
             "suggest" -> setBirthday(event, subcommand)
-            else -> throw IllegalArgumentException("Invalid command usage. Run `/birthday help` for details.")
+            else -> throw IllegalArgumentException("This command hasn't been implemented yet :(")
         }
     }
 
