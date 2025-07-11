@@ -9,6 +9,8 @@ import discord4j.core.event.domain.interaction.ChatInputInteractionEvent
 import discord4j.core.`object`.command.ApplicationCommandInteractionOption
 import discord4j.core.`object`.command.ApplicationCommandInteractionOptionValue
 import discord4j.core.`object`.command.ApplicationCommandOption
+import discord4j.core.`object`.component.Container
+import discord4j.core.`object`.component.TextDisplay
 import discord4j.core.`object`.entity.User
 import discord4j.core.spec.EmbedCreateSpec
 import discord4j.core.spec.InteractionApplicationCommandCallbackSpec
@@ -37,12 +39,12 @@ class BirthdayCommand : RegisterableSlashCommand {
             .addOption(
                 ApplicationCommandOptionData.builder()
                     .name("display")
-                    .description("Displays someone's birthday.")
+                    .description("Displays a list of all birthdays or birthday information about a specific user.")
                     .type(ApplicationCommandOption.Type.SUB_COMMAND.value)
                     .addOption(
                         ApplicationCommandOptionData.builder()
                             .name("user")
-                            .description("The user whose birthday to display.")
+                            .description("If specified, displays a specific user's birthday and age.")
                             .type(ApplicationCommandOption.Type.USER.value)
                             .required(false)
                             .build()
@@ -52,7 +54,7 @@ class BirthdayCommand : RegisterableSlashCommand {
             .addOption(
                 ApplicationCommandOptionData.builder()
                     .name("set")
-                    .description("Sets your birthday or suggests another user's birthday.")
+                    .description("Sets your birthday.")
                     .type(ApplicationCommandOption.Type.SUB_COMMAND.value)
                     .addOption(
                         ApplicationCommandOptionData.builder()
@@ -69,14 +71,40 @@ class BirthdayCommand : RegisterableSlashCommand {
                     ).addOption(
                         ApplicationCommandOptionData.builder()
                             .name("year")
-                            .description("The year of the birthday (optional).")
+                            .description("The year of the birthday.")
                             .type(ApplicationCommandOption.Type.INTEGER.value).required(false)
+                            .build()
+                    ).build()
+            )
+            // suggest subcommand
+            .addOption(
+                ApplicationCommandOptionData.builder()
+                    .name("suggest")
+                    .description("Suggests another user's birthday if they haven't set one yet.")
+                    .type(ApplicationCommandOption.Type.SUB_COMMAND.value)
+                    .addOption(
+                        ApplicationCommandOptionData.builder()
+                            .name("month")
+                            .description("The month of the birthday (1-12).")
+                            .type(ApplicationCommandOption.Type.INTEGER.value).required(true)
+                            .build()
+                    ).addOption(
+                        ApplicationCommandOptionData.builder()
+                            .name("day")
+                            .description("The day of the birthday (1-31).")
+                            .type(ApplicationCommandOption.Type.INTEGER.value).required(true)
                             .build()
                     ).addOption(
                         ApplicationCommandOptionData.builder()
                             .name("user")
-                            .description("The user whose birthday to suggest. Leave empty to set your own.")
-                            .type(ApplicationCommandOption.Type.USER.value).required(false)
+                            .description("The user whose birthday to suggest.")
+                            .type(ApplicationCommandOption.Type.USER.value).required(true)
+                            .build()
+                    ).addOption(
+                        ApplicationCommandOptionData.builder()
+                            .name("year")
+                            .description("The year of the birthday.")
+                            .type(ApplicationCommandOption.Type.INTEGER.value).required(false)
                             .build()
                     ).build()
             ).build()
@@ -85,25 +113,54 @@ class BirthdayCommand : RegisterableSlashCommand {
     override fun execute(event: ChatInputInteractionEvent): Mono<Void> {
         val subcommand = event.options.firstOrNull()
         return when (subcommand?.name) {
-            "display" -> birthdayDisplay(subcommand, event)
-            "set" -> addBirthday(event, subcommand)
+            "display" -> displayBirthday(event, subcommand)
+            "set" -> setBirthday(event, subcommand)
+            "suggest" -> setBirthday(event, subcommand)
             else -> throw IllegalArgumentException("Invalid command usage. Run `/birthday help` for details.")
         }
     }
 
-    private fun birthdayDisplay(
-        subcommand: ApplicationCommandInteractionOption, event: ChatInputInteractionEvent
+    /**
+     * Handles the `/birthday display` subcommand.
+     *
+     * @param event The event of the command called.
+     * @param subcommand The subcommand associated with the command called.
+     */
+    private fun displayBirthday(
+        event: ChatInputInteractionEvent, subcommand: ApplicationCommandInteractionOption
     ): Mono<Void> {
         return subcommand.getOption("user").flatMap(ApplicationCommandInteractionOption::getValue)
             .map(ApplicationCommandInteractionOptionValue::asUser)
             .orElse(Mono.empty())
             .flatMap { user -> getBirthdayInfo(user, event.client) }
-            .switchIfEmpty (getAllBirthdays())
+            .switchIfEmpty(getAllBirthdays())
             .flatMap { replySpec -> event.reply(replySpec) }
     }
 
     /**
-     * Executed when `/birthday display` is run without a user specified
+     * Handles the `/birthday set` and `/birthday suggest` subcommands.
+     *
+     * @param event The event of the command called.
+     * @param subcommand The subcommand associated with the command called.
+     */
+    private fun setBirthday(
+        event: ChatInputInteractionEvent, subcommand: ApplicationCommandInteractionOption
+    ): Mono<Void> {
+        return subcommand.getOption("user").flatMap(ApplicationCommandInteractionOption::getValue)
+            .map(ApplicationCommandInteractionOptionValue::asUser).orElse(Mono.just(event.interaction.user))
+            .flatMap { user -> validateCanHaveBirthday(user) }
+            .flatMap { user -> parseDateInput(subcommand).map { user to it } }
+            .flatMap { (user, dateInput) -> updateBirthday(user, event, dateInput) }
+            .flatMap { successMessage -> event.reply(successMessage) }
+    }
+
+    /**
+     * Returns an `InteractionApplicationCommandCallbackSpec` with an embed
+     * containing a list of all birthdays.
+     * Executed when `/birthday display` is run without a user specified.
+     *
+     * @return An `InteractionApplicationCommandCallbackSpec` with an embed
+     * containing a list of all birthdays.
      */
     private fun getAllBirthdays(): Mono<InteractionApplicationCommandCallbackSpec> {
         return Mono.fromCallable {
@@ -129,7 +186,7 @@ class BirthdayCommand : RegisterableSlashCommand {
         }.flatMap { birthdays ->
             var embed = EmbedCreateSpec.builder()
                 .title("\uD83C\uDF82  Registered Birthdays")
-                .description("Want your birthday in this list? Do so with `/birthday set`.")
+                .description("Want your birthday in this list? Add it with `/birthday set`.")
                 .timestamp(Instant.now())
 
             val formatter = DateTimeFormatter.ofPattern("MMMM d")
@@ -180,15 +237,21 @@ class BirthdayCommand : RegisterableSlashCommand {
                 )
             }
 
-            Mono.just(InteractionApplicationCommandCallbackSpec.builder()
-                .addEmbed(embed.build())
-                .build()
+            Mono.just(
+                InteractionApplicationCommandCallbackSpec.builder()
+                    .addEmbed(embed.build())
+                    .build()
             )
         }
     }
 
     /**
      * Executed when `/birthday display` is run with a user specified
+     *
+     * @param user The user of the birthday to lookup
+     * @param gatewayDiscordClient Used to get the user that set the birthday
+     * @return A `Mono<InteractionApplicationCommandCallbackSpec>` containing
+     * an embed with birthday information for the user specified.
      */
     private fun getBirthdayInfo(
         user: User,
@@ -256,17 +319,14 @@ class BirthdayCommand : RegisterableSlashCommand {
         }
     }
 
-    private fun addBirthday(
-        event: ChatInputInteractionEvent, subcommand: ApplicationCommandInteractionOption
-    ): Mono<Void> {
-        return subcommand.getOption("user").flatMap(ApplicationCommandInteractionOption::getValue)
-            .map(ApplicationCommandInteractionOptionValue::asUser).orElse(Mono.just(event.interaction.user))
-            .flatMap { user -> validateCanHaveBirthday(user) }
-            .flatMap { user -> parseDateInput(subcommand).map { user to it } }.flatMap { (user, dateInput) ->
-                updateBirthday(user, event, dateInput)
-            }.flatMap { successMessage -> event.reply(successMessage) }
-    }
-
+    /**
+     * Validates if a user is eligible to have a birthday.
+     * The only users that cannot have a birthday at this time are bots.
+     *
+     * @param user The user to check.
+     * @return A `Mono<User>` if the validation was successful.
+     * @throws IllegalArgumentException if the validation was unsuccessful.
+     */
     private fun validateCanHaveBirthday(user: User): Mono<User> {
         return if (user.isBot) {
             Mono.error(IllegalArgumentException("<@${user.id.asLong()}> is a bot! Bots can't have birthdays!"))
@@ -275,6 +335,16 @@ class BirthdayCommand : RegisterableSlashCommand {
         }
     }
 
+    /**
+     * Validates a subcommand's day, month, and year options, and returns a triple
+     * containing the month, day, and year.
+     *
+     * @param subcommand A subcommand containing `month`, `day`, and `year` options.
+     * @return A `Mono` containing a `Triple` that includes the month, day, and year
+     * from the subcommand if they were valid, in that order. (Note that year is
+     * nullable).
+     * @throws IllegalArgumentException if the date could not be validated.
+     */
     private fun parseDateInput(subcommand: ApplicationCommandInteractionOption): Mono<Triple<Int, Int, Int?>> {
         return Mono.fromCallable {
             val month = subcommand.getOption("month").flatMap(ApplicationCommandInteractionOption::getValue)
@@ -304,9 +374,22 @@ class BirthdayCommand : RegisterableSlashCommand {
         }
     }
 
+    /**
+     * Updates/sets a user's birthday and returns a InteractionApplicationCommandCallbackSpec
+     * with an ephemeral success message.
+     *
+     * @param user The user whose birthday to update
+     * @param event The event from when the command was originally called.
+     * @param dateInput A `Triple` containing the month, day, and year to be put in the
+     * database. The year can be null.
+     * @return An InteractionApplicationCommandCallbackSpec containing an ephemeral message
+     * if the user's birthday was successfully set/updated.
+     * @throws IllegalStateException if the event caller does not have permission to update the
+     * birthday of the user. This happens if the user has already set/verified their birthday.
+     */
     private fun updateBirthday(
         user: User, event: ChatInputInteractionEvent, dateInput: Triple<Int, Int, Int?>
-    ): Mono<String> {
+    ): Mono<InteractionApplicationCommandCallbackSpec> {
         return Mono.fromCallable {
             val eventCallerId = event.interaction.user.id.asLong()
             val userQueryId = user.id.asLong()
@@ -335,21 +418,35 @@ class BirthdayCommand : RegisterableSlashCommand {
                 "<@$userQueryId>'s"
             }
 
-            // return success string
             val successString = if (dateInput.third == null) {
-//                val monthDay = MonthDay.of(dateInput.first, dateInput.second)
-                "Set $userString birthday to ${dateInput.first}/${dateInput.second}!"
+                val formatter = DateTimeFormatter.ofPattern("MMMM d")
+                val monthDay = MonthDay.of(dateInput.first, dateInput.second)
+                """
+                    You've set $userString birthday to ${monthDay.format(formatter)}, but I noticed you **didn't include a birth year**.
+                    
+                    You can add a birth year by re-running this command and including the `year` option. This is recommended as this enables age to be shown along with more personalized birthday messages. You can update this at any time.
+                    
+                    Otherwise, no further action is needed.
+                """.trimIndent()
             } else {
-//                val localDate = LocalDate.of(dateInput.first, dateInput.second, dateInput.third!!)
-                "Set $userString birthday to ${dateInput.first}/${dateInput.second}/${dateInput.third}!"
+                val formatter = DateTimeFormatter.ofPattern("MMMM d, YYYY")
+                val localDate = LocalDate.of(dateInput.third!!, dateInput.first, dateInput.second)
+                "Set $userString birthday to ${localDate.format(formatter)}!"
             }
 
-            successString
+            InteractionApplicationCommandCallbackSpec.builder()
+                .ephemeral(true)
+                .addComponent(Container.of(TextDisplay.of(successString)))
+                .build()
         }
     }
 
     /**
-     * Temporary method until I set up embeds. Gets the user's username as an alternative to pinging them.
+     * Gets the user's name or username, depending on which is available.
+     *
+     * @param user The user whose name to get
+     * @return The globalName of the user if they have one, or if not their
+     * username.
      */
     private fun getUserName(user: User): String {
         return user.globalName.orElse(user.username)
@@ -361,7 +458,7 @@ class BirthdayCommand : RegisterableSlashCommand {
      * The "next occurrence" means strictly in the future. If the MonthDay is today,
      * the next occurrence will be in the following year.
      *
-     * This will probably error on leap days, but I don't feel like handling that
+     * This will probably error on leap days, but I don't feel like handling that.
      *
      * @param monthDay The MonthDay (e.g., MonthDay.of(Month.JULY, 10)).
      * @param zoneId The time zone to consider for "today" and for the start of the day.
