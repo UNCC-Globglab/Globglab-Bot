@@ -14,7 +14,7 @@ class MentionHandler : RegistrableHandler {
                 val botId = message.client.selfId
                 println(message.content)
 
-                if (message.author == gateway.self) {
+                if (message.author.isPresent && message.author.get().isBot) {
                     return@flatMap Mono.empty<GatewayDiscordClient>()
                 }
 

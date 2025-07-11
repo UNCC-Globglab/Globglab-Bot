@@ -5,6 +5,10 @@ import com.dudebehinddude.annotations.SlashCommand
 import discord.slashcommands.RegisterableSlashCommand
 import discord4j.core.GatewayDiscordClient
 import discord4j.core.event.domain.interaction.ChatInputInteractionEvent
+import discord4j.core.`object`.component.Container
+import discord4j.core.`object`.component.Separator
+import discord4j.core.`object`.component.TextDisplay
+import discord4j.core.spec.InteractionApplicationCommandCallbackSpec
 import discord4j.rest.RestClient
 import io.github.cdimascio.dotenv.dotenv
 import reactor.core.publisher.Mono
@@ -33,9 +37,9 @@ class SlashCommandHandler : RegistrableHandler {
             .flatMap { event ->
                 allSlashCommands[event.commandName]
                     ?.execute(event)
-                    ?.onErrorResume { e ->
-                        println("Error executing command ${event.commandName}: ${e.message}")
-                        event.reply("An error occurred while handling command: ${e.localizedMessage}")
+                    ?.onErrorResume { error ->
+                        // Generate an error message when an error gets thrown during any command's execution
+                        event.reply(getErrorCallbackSpec(error))
                     }
                     ?: Mono.empty()
             }
@@ -63,4 +67,27 @@ class SlashCommandHandler : RegistrableHandler {
                 .subscribe()
         }
     }
+
+    /**
+     * Generates an error message when an error gets thrown during any command's execution, using discord's
+     * new Components v2.
+     *
+     * @param error The error to generate a message for.
+     * @return An `InteractionApplicationCommandCallbackSpec` that can be directly used in an `event.reply()`.
+     */
+    private fun getErrorCallbackSpec(error: Throwable): InteractionApplicationCommandCallbackSpec {
+        val messageContainer = Container.of(TextDisplay.of("## Something went wrong"))
+            .withAddedComponent(Separator.of())
+            .withAddedComponent(
+                TextDisplay.of(
+                    error.message ?: "An unknown error occurred."
+                )
+            )
+
+        return InteractionApplicationCommandCallbackSpec.builder()
+            .addComponent(messageContainer)
+            .ephemeral(true)
+            .build()
+    }
+
 }
