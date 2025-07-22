@@ -140,7 +140,7 @@ class BirthdayCommand : RegisterableSlashCommand {
             "display" -> displayBirthday(event, subcommand)
             "set" -> setBirthday(event, subcommand)
             "suggest" -> setBirthday(event, subcommand)
-            else -> throw IllegalArgumentException("This command hasn't been implemented yet :(")
+            else -> Mono.error(IllegalArgumentException("This command hasn't been implemented yet :("))
         }
     }
 

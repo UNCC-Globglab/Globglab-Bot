@@ -8,4 +8,5 @@ object Users : Table("userdata") {
     val birthMonth = integer("birth_month").nullable()
     val birthYear = integer("birth_year").nullable()
     val birthdayCreatorId = long("birthday_creator_id").nullable()
+    val hasCar = bool("has_car").nullable()
 }
