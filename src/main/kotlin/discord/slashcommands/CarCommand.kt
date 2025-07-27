@@ -125,11 +125,12 @@ class CarCommand : RegisterableSlashCommand {
         event: ChatInputInteractionEvent,
         subcommand: ApplicationCommandInteractionOption
     ): Mono<Void> {
+        val commandID = event.commandId.asLong()
         return subcommand.getOption("user").flatMap(ApplicationCommandInteractionOption::getValue)
             .map(ApplicationCommandInteractionOptionValue::asUser)
             .orElse(Mono.empty())
-            .flatMap { user -> getCarInfo(user) }
-            .switchIfEmpty(getAllCarInfo())
+            .flatMap { user -> getCarInfo(user, commandID) }
+            .switchIfEmpty(getAllCarInfo(commandID))
             .flatMap { event.reply(it) }
     }
 
@@ -214,7 +215,7 @@ class CarCommand : RegisterableSlashCommand {
      * @return A `Mono<InteractionApplicationCommandCallbackSpec>` containing an embed
      * with a list of all users' car ownership statuses.
      */
-    private fun getAllCarInfo(): Mono<InteractionApplicationCommandCallbackSpec> {
+    private fun getAllCarInfo(commandID: Long): Mono<InteractionApplicationCommandCallbackSpec> {
         return Mono.fromCallable {
             transaction {
                 Users.selectAll().map { row ->
@@ -231,7 +232,7 @@ class CarCommand : RegisterableSlashCommand {
             var noCarList = ""
             var embed = EmbedCreateSpec.builder()
                 .title("Car Ownership Information")
-                .description("Not in this list? Add your ownership status with `/car set`.")
+                .description("Not in this list? Add your ownership status with </car set:$commandID>.")
                 .timestamp(Instant.now())
 
             for (user in users) {
@@ -265,7 +266,7 @@ class CarCommand : RegisterableSlashCommand {
      * @return A `Mono<InteractionApplicationCommandCallbackSpec>` containing an embed
      * with the specified user's car ownership status.
      */
-    private fun getCarInfo(user: User): Mono<InteractionApplicationCommandCallbackSpec> {
+    private fun getCarInfo(user: User, commandID: Long): Mono<InteractionApplicationCommandCallbackSpec> {
         return Mono.fromCallable {
             Optional.ofNullable(transaction {
                 Users.selectAll().where(Users.userid eq user.id.asLong()).map { row ->
@@ -278,7 +279,7 @@ class CarCommand : RegisterableSlashCommand {
             Mono.just("<@${user.id.asString()}> ${getOwnString(hasCarValue)}.")
         }.switchIfEmpty(
             Mono.just(
-                "Car ownership information not found for <@${user.id.asString()}>. Perhaps make a suggestion with `/car suggest`?"
+                "Car ownership information not found for <@${user.id.asString()}>. Perhaps make a suggestion with </car suggest:$commandID>?"
             )
         ).flatMap { carValueString ->
             val embed = EmbedCreateSpec.builder()

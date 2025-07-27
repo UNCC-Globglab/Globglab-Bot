@@ -153,11 +153,12 @@ class BirthdayCommand : RegisterableSlashCommand {
     private fun displayBirthday(
         event: ChatInputInteractionEvent, subcommand: ApplicationCommandInteractionOption
     ): Mono<Void> {
+        val commandID = event.commandId.asLong()
         return subcommand.getOption("user").flatMap(ApplicationCommandInteractionOption::getValue)
             .map(ApplicationCommandInteractionOptionValue::asUser)
             .orElse(Mono.empty())
-            .flatMap { user -> getBirthdayInfo(user, event.client) }
-            .switchIfEmpty(getAllBirthdays())
+            .flatMap { user -> getBirthdayInfo(user, event.client, commandID) }
+            .switchIfEmpty(getAllBirthdays(commandID))
             .flatMap { replySpec -> event.reply(replySpec) }
     }
 
@@ -186,7 +187,7 @@ class BirthdayCommand : RegisterableSlashCommand {
      * @return An `InteractionApplicationCommandCallbackSpec` with an embed
      * containing a list of all birthdays.
      */
-    private fun getAllBirthdays(): Mono<InteractionApplicationCommandCallbackSpec> {
+    private fun getAllBirthdays(commandID: Long): Mono<InteractionApplicationCommandCallbackSpec> {
         return Mono.fromCallable {
             transaction {
                 Users.selectAll().map { row ->
@@ -210,7 +211,7 @@ class BirthdayCommand : RegisterableSlashCommand {
         }.flatMap { birthdays ->
             var embed = EmbedCreateSpec.builder()
                 .title("\uD83C\uDF82  Registered Birthdays")
-                .description("Want your birthday in this list? Add it with `/birthday set`.")
+                .description("Want your birthday in this list? Add it with </birthday set:$commandID>.")
                 .timestamp(Instant.now())
 
             val formatter = DateTimeFormatter.ofPattern("MMMM d")
@@ -279,7 +280,8 @@ class BirthdayCommand : RegisterableSlashCommand {
      */
     private fun getBirthdayInfo(
         user: User,
-        gatewayDiscordClient: GatewayDiscordClient
+        gatewayDiscordClient: GatewayDiscordClient,
+        commandID: Long
     ): Mono<InteractionApplicationCommandCallbackSpec> {
         val userId = user.id.asLong()
         var embed = EmbedCreateSpec.builder()
@@ -304,7 +306,7 @@ class BirthdayCommand : RegisterableSlashCommand {
 
             if (dateData?.first == null || dateData.second == null || birthdayCreatorId == null) {
                 embed = embed.description(
-                    "<@$userId> does not have a birthday. Perhaps suggest one with `/birthday suggest`?"
+                    "<@$userId> does not have a birthday. Perhaps suggest one with </birthday suggest:$commandID>?"
                 )
 
                 val replySpec = InteractionApplicationCommandCallbackSpec.builder()
@@ -329,7 +331,7 @@ class BirthdayCommand : RegisterableSlashCommand {
                     )
                 } else {
                     birthdayString += "\n-# --\n-# Birthday suggested by <@$birthdayCreatorId>" +
-                            "\n-# <@$userId> can verify this with `/birthday verify`."
+                            "\n-# <@$userId> can verify this with </birthday verify:$commandID>."
                 }
                 embed = embed.description(birthdayString)
 
