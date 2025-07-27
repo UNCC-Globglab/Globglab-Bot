@@ -9,14 +9,51 @@ import discord4j.core.`object`.component.Container
 import discord4j.core.`object`.component.Separator
 import discord4j.core.`object`.component.TextDisplay
 import discord4j.core.spec.InteractionApplicationCommandCallbackSpec
+import discord4j.discordjson.json.ApplicationCommandData
 import discord4j.rest.RestClient
 import io.github.cdimascio.dotenv.dotenv
+import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 
 @Handler
 class SlashCommandHandler : RegistrableHandler {
-    private val dotenv = dotenv { ignoreIfMissing = true }
-    private val guildId: String? = dotenv["SLASH_COMMAND_GUILD_ID"] ?: System.getenv("SLASH_COMMAND_GUILD_ID")
+    companion object {
+        private val dotenv = dotenv { ignoreIfMissing = true }
+        private val guildIdStr: String? = dotenv["SLASH_COMMAND_GUILD_ID"] ?: System.getenv("SLASH_COMMAND_GUILD_ID")
+
+        /**
+         * Gets the Guild ID where commands are being registered to.
+         *
+         * @return The ID of the guild slash commands are registered to, or null if they are registered globally.
+         */
+        fun getCommandGuildID(): Long? {
+            return guildIdStr?.toLong()
+        }
+
+        /**
+         * Gets the Command ID of a slash command. Note that this requires a call to the Discord gateway,
+         * which adds additional latency.
+         *
+         * @param gateway The discord gateway (used to query for the command id).
+         * @param commandName The command to get the ID of.
+         * @return The ID of the specified command, or null if it is not registered to the bot.
+         */
+        fun getCommandID(gateway: GatewayDiscordClient, commandName: String): Long? {
+            val appId = gateway.selfId.asLong()
+            val guildId = getCommandGuildID()
+            val commands: Flux<ApplicationCommandData> = if (guildId != null) {
+                gateway.restClient.applicationService.getGuildApplicationCommands(appId, guildId)
+            } else {
+                gateway.restClient.applicationService.getGlobalApplicationCommands(appId)
+            }
+
+            return commands
+                .filter { it.name() == commandName }
+                .blockFirst()
+                ?.id()
+                ?.asLong()
+        }
+    }
 
     override fun register(gateway: GatewayDiscordClient) {
         println("Registering Slash Commands")
@@ -48,10 +85,10 @@ class SlashCommandHandler : RegistrableHandler {
 
     private fun registerCommands(restClient: RestClient, appId: Long, commands: Map<String, RegisterableSlashCommand>) {
         val builders = commands.values.map { it.builder() }
-        val parsedGuildId = guildId?.toLong()
+        val guildId = getCommandGuildID()
 
         // Register commands
-        if (parsedGuildId == null) {
+        if (guildId == null) {
             restClient.applicationService
                 .bulkOverwriteGlobalApplicationCommand(appId, builders)
                 .doOnNext { command ->
@@ -60,7 +97,7 @@ class SlashCommandHandler : RegistrableHandler {
                 .subscribe()
         } else {
             restClient.applicationService
-                .bulkOverwriteGuildApplicationCommand(appId, parsedGuildId, builders)
+                .bulkOverwriteGuildApplicationCommand(appId, guildId, builders)
                 .doOnNext { command ->
                     println("Registered command to guild: ${command.name()}")
                 }
@@ -89,5 +126,4 @@ class SlashCommandHandler : RegistrableHandler {
             .ephemeral(true)
             .build()
     }
-
 }

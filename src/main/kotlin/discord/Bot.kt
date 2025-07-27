@@ -1,6 +1,7 @@
 package com.dudebehinddude.discord
 
 import com.dudebehinddude.annotations.Handler
+import com.dudebehinddude.schedulers.BirthdayScheduler
 import discord4j.core.DiscordClient
 import discord4j.core.GatewayDiscordClient
 import io.github.cdimascio.dotenv.dotenv
@@ -25,6 +26,10 @@ class Bot {
         }
     }
 
+    private fun registerSchedulers(gateway: GatewayDiscordClient) {
+        BirthdayScheduler(gateway)
+    }
+
     /**
      * Starts the bot.
      */
@@ -32,6 +37,7 @@ class Bot {
         // Create a gateway connection and maintain it
         val gateway = client.login().block() ?: throw Exception("Unable to login!")
         registerHandlers(gateway)
+        registerSchedulers(gateway)
 
         // This will keep the connection alive until the program is terminated
         gateway.onDisconnect().block()
