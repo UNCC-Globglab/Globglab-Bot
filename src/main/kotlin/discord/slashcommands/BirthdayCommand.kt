@@ -19,6 +19,7 @@ import discord4j.discordjson.json.ApplicationCommandRequest
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.sql.update
 import org.jetbrains.exposed.sql.upsert
 import reactor.core.publisher.Mono
 import java.time.*
@@ -140,6 +141,8 @@ class BirthdayCommand : RegisterableSlashCommand {
             "display" -> displayBirthday(event, subcommand)
             "set" -> setBirthday(event, subcommand)
             "suggest" -> setBirthday(event, subcommand)
+            "remove" -> removeBirthday(event, subcommand)
+            "verify" -> verifyBirthday(event)
             else -> Mono.error(IllegalArgumentException("This command hasn't been implemented yet :("))
         }
     }
@@ -180,10 +183,36 @@ class BirthdayCommand : RegisterableSlashCommand {
     }
 
     /**
+     * Handles the `/birthday remove` subcommand.
+     *
+     * @param event The event of the command called.
+     */
+    private fun removeBirthday(
+        event: ChatInputInteractionEvent,
+        subcommand: ApplicationCommandInteractionOption
+    ): Mono<Void> {
+        val caller = event.user
+        return subcommand.getOption("user").flatMap(ApplicationCommandInteractionOption::getValue)
+            .map(ApplicationCommandInteractionOptionValue::asUser).orElse(Mono.just(event.interaction.user))
+            .flatMap { user -> remove(user, caller) }
+            .flatMap { message -> event.reply(message) }
+    }
+
+    /**
+     * Handles the `/birthday verify` subcommand.
+     *
+     * @param event The event of the command called.
+     */
+    private fun verifyBirthday(event: ChatInputInteractionEvent): Mono<Void> {
+        return verify(event.user).flatMap { message -> event.reply(message) }
+    }
+
+    /**
      * Returns an `InteractionApplicationCommandCallbackSpec` with an embed
      * containing a list of all birthdays.
      * Executed when `/birthday display` is run without a user specified.
      *
+     * @param commandID The command ID for creating slash command mentions
      * @return An `InteractionApplicationCommandCallbackSpec` with an embed
      * containing a list of all birthdays.
      */
@@ -275,6 +304,7 @@ class BirthdayCommand : RegisterableSlashCommand {
      *
      * @param user The user of the birthday to lookup
      * @param gatewayDiscordClient Used to get the user that set the birthday
+     * @param commandID The command ID for generating slash command mentions
      * @return A `Mono<InteractionApplicationCommandCallbackSpec>` containing
      * an embed with birthday information for the user specified.
      */
@@ -463,6 +493,95 @@ class BirthdayCommand : RegisterableSlashCommand {
             InteractionApplicationCommandCallbackSpec.builder()
                 .ephemeral(true)
                 .addComponent(Container.of(TextDisplay.of(successString)))
+                .build()
+        }
+    }
+
+    /**
+     * Removes a user's birthday information from the database.
+     *
+     * @param user The user to remove birthday information for.
+     * @param caller The user who called the command
+     * @return A Mono containing a success message.
+     * @throws IllegalStateException if the user is not in the database.
+     */
+    private fun remove(user: User, caller: User): Mono<InteractionApplicationCommandCallbackSpec> {
+        return Mono.fromCallable {
+            transaction {
+                if (caller != user) {
+                    val userData = Users.selectAll()
+                        .where { Users.userid eq user.id.asLong() }
+                        .singleOrNull()
+                    if (userData == null) {
+                        throw IllegalStateException("No birthday information associated with <@${user.id.asString()}>!")
+                    }
+                    if (userData[Users.birthdayCreatorId] == userData[Users.userid]) {
+                        throw IllegalStateException(
+                            "<@${user.id.asString()}> has verified their birthday, so you cannot edit it!"
+                        )
+                    }
+                }
+
+                Users.update({ Users.userid eq user.id.asLong() }) { row ->
+                    row[birthDay] = null
+                    row[birthMonth] = null
+                    row[birthYear] = null
+                    row[birthdayCreatorId] = null
+                }
+            }
+        }.map { _ ->
+            val textDisplay = TextDisplay.of(
+                "Successfully removed birthday information."
+            )
+
+            InteractionApplicationCommandCallbackSpec.builder()
+                .ephemeral(true)
+                .addComponent(Container.of(textDisplay))
+                .build()
+        }
+    }
+
+    /**
+     * Verifies a user's birthday information in the database.
+     *
+     * @param user The user to remove birthday information for.
+     * @return A Mono containing a success message.
+     * @throws IllegalStateException if the user does not have a birthday in the database,
+     * or if they are already verified.
+     */
+    private fun verify(user: User): Mono<InteractionApplicationCommandCallbackSpec> {
+        return Mono.fromCallable {
+            transaction {
+                val existingRow = Users.selectAll()
+                    .where { Users.userid eq user.id.asLong() }
+                    .singleOrNull()
+
+                if (existingRow == null) throw IllegalStateException("No saved birthday to verify!")
+
+                if (
+                    existingRow[Users.birthDay] == null ||
+                    existingRow[Users.birthMonth] == null ||
+                    existingRow[Users.birthdayCreatorId] == null
+                ) {
+                    throw IllegalStateException("No saved birthday to verify!")
+                }
+
+                if (existingRow[Users.birthdayCreatorId] == user.id.asLong()) {
+                    throw IllegalStateException("Your birthday is already verified!")
+                }
+
+                Users.update({ Users.userid eq user.id.asLong() }) { row ->
+                    row[birthdayCreatorId] = user.id.asLong()
+                }
+            }
+        }.map { _ ->
+            val textDisplay = TextDisplay.of(
+                "Your birthday has been verified."
+            )
+
+            InteractionApplicationCommandCallbackSpec.builder()
+                .ephemeral(true)
+                .addComponent(Container.of(textDisplay))
                 .build()
         }
     }

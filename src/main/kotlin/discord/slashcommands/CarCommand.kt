@@ -17,6 +17,7 @@ import discord4j.discordjson.json.ApplicationCommandRequest
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.sql.update
 import org.jetbrains.exposed.sql.upsert
 import reactor.core.publisher.Mono
 import java.time.Instant
@@ -95,6 +96,7 @@ class CarCommand : RegisterableSlashCommand {
             "display" -> displayCars(event, subcommand)
             "set" -> setCar(event, subcommand)
             "suggest" -> setCar(event, subcommand)
+            "remove" -> removeCar(event)
             else -> Mono.error(IllegalStateException("This command hasn't been implemented yet :("))
         }
     }
@@ -132,6 +134,18 @@ class CarCommand : RegisterableSlashCommand {
             .flatMap { user -> getCarInfo(user, commandID) }
             .switchIfEmpty(getAllCarInfo(commandID))
             .flatMap { event.reply(it) }
+    }
+
+    /**
+     * Handles the `/car remove` subcommand.
+     *
+     * @param event The event of the command called.
+     * @return A `Mono<Void> that completes when the user's data has been removed.
+     */
+    private fun removeCar(
+        event: ChatInputInteractionEvent
+    ): Mono<Void> {
+        return remove(event.user).flatMap { message -> event.reply(message) }
     }
 
     /**
@@ -212,6 +226,7 @@ class CarCommand : RegisterableSlashCommand {
     /**
      * Retrieves and formats car ownership information for all users in the database.
      *
+     * @param commandID The command ID for generating slash command mentions
      * @return A `Mono<InteractionApplicationCommandCallbackSpec>` containing an embed
      * with a list of all users' car ownership statuses.
      */
@@ -263,6 +278,7 @@ class CarCommand : RegisterableSlashCommand {
      * Retrieves and formats car ownership information for a specific user from the database.
      *
      * @param user The user whose car ownership information is to be retrieved.
+     * @param commandID The command ID for generating slash command mentions
      * @return A `Mono<InteractionApplicationCommandCallbackSpec>` containing an embed
      * with the specified user's car ownership status.
      */
@@ -297,6 +313,32 @@ class CarCommand : RegisterableSlashCommand {
     }
 
     /**
+     * Removes a user's car ownership information from the database.
+     *
+     * @param user The user to remove car ownership information for.
+     * @return A Mono containing a success message.
+     * @throws IllegalStateException if the user is not in the database.
+     */
+    private fun remove(user: User): Mono<InteractionApplicationCommandCallbackSpec> {
+        return Mono.fromCallable {
+            transaction {
+                Users.update({ Users.userid eq user.id.asLong() }) { row ->
+                    row[hasCar] = null
+                }
+            }
+        }.map { _ ->
+            val textDisplay = TextDisplay.of(
+                "Successfully removed car ownership information."
+            )
+
+            InteractionApplicationCommandCallbackSpec.builder()
+                .ephemeral(true)
+                .addComponent(Container.of(textDisplay))
+                .build()
+        }
+    }
+
+    /**
      * Generates a string indicating whether a user owns a car.
      *
      * @param hasItem `true` if the user owns a car, `false` otherwise.
@@ -304,9 +346,9 @@ class CarCommand : RegisterableSlashCommand {
      */
     private fun getOwnString(hasItem: Boolean): String {
         return if (hasItem) {
-            "does"
+            "owns"
         } else {
-            "does not"
-        } + " own a car"
+            "does not own"
+        } + " a car"
     }
 }
