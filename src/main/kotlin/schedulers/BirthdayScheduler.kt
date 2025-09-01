@@ -2,6 +2,7 @@ package com.dudebehinddude.schedulers
 
 import com.dudebehinddude.database.Users
 import com.dudebehinddude.discord.handlers.SlashCommandHandler
+import com.dudebehinddude.util.getTimezone
 import com.dudebehinddude.util.toOrdinal
 import discord4j.common.util.Snowflake
 import discord4j.core.GatewayDiscordClient
@@ -15,7 +16,10 @@ import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import reactor.core.publisher.Mono
-import java.time.*
+import java.time.Instant
+import java.time.LocalTime
+import java.time.MonthDay
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.Executors
@@ -48,7 +52,7 @@ class BirthdayScheduler {
     }
 
     fun start() {
-        val now = LocalDateTime.now()
+        val now = ZonedDateTime.now(getTimezone())
         var firstRunTime = now.with(LocalTime.of(0, 0, 5)) // +5 seconds for time funkiness
         if (now.isAfter(firstRunTime)) {
             firstRunTime = firstRunTime.plus(1, ChronoUnit.DAYS)
@@ -64,7 +68,7 @@ class BirthdayScheduler {
         val textChannel = gateway.getChannelById(channelSnowflake).cast(TextChannel::class.java)
 
         // Monthly birthday list
-        if (LocalDate.now().dayOfMonth == 1) {
+        if (ZonedDateTime.now(getTimezone()).dayOfMonth == 1) {
             textChannel.flatMap { channel ->
                 getMonthlyBirthdays().flatMap { message ->
                     channel.createMessage(message)
@@ -81,7 +85,7 @@ class BirthdayScheduler {
     }
 
     private fun getTodayBirthdays(): Mono<MessageCreateSpec> {
-        val today = LocalDate.now()
+        val today = ZonedDateTime.now(getTimezone())
         val day = today.dayOfMonth
         val month = today.monthValue
         val year = today.year
@@ -116,7 +120,7 @@ class BirthdayScheduler {
     }
 
     private fun getMonthlyBirthdays(): Mono<MessageCreateSpec> {
-        val currentMonth = MonthDay.now().monthValue
+        val currentMonth = MonthDay.now(getTimezone()).monthValue
         return Mono.fromCallable {
             transaction {
                 Users.selectAll()

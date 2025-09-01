@@ -2,6 +2,7 @@ package com.dudebehinddude.discord.slashcommands
 
 import com.dudebehinddude.annotations.SlashCommand
 import com.dudebehinddude.database.Users
+import com.dudebehinddude.util.getTimezone
 import discord.slashcommands.RegisterableSlashCommand
 import discord4j.common.util.Snowflake
 import discord4j.core.GatewayDiscordClient
@@ -350,7 +351,7 @@ class BirthdayCommand : RegisterableSlashCommand {
             var birthdayString = "<@$userId>'s next birthday is <t:$nextBirthday:R> on <t:$nextBirthday:D>."
             if (dateData.third != null) {
                 val dob = LocalDate.of(dateData.third!!, dateData.first!!, dateData.second!!)
-                val age = Period.between(dob, LocalDate.now()).years
+                val age = Period.between(dob, LocalDate.now(getTimezone())).years
                 birthdayString += " They are currently $age years old!"
             }
 
