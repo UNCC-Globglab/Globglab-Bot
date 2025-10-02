@@ -17,11 +17,14 @@ import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import reactor.core.publisher.Mono
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.MonthDay
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -159,8 +162,10 @@ class BirthdayScheduler {
         }.flatMap { birthdays ->
             var message = MessageCreateSpec.create()
             if (birthdays.isEmpty()) {
+                val currentMonth = LocalDate.now(getTimezone()).month
+                val monthString = currentMonth.getDisplayName(TextStyle.FULL, Locale.ENGLISH)
                 message = message.withFlags(Message.Flag.IS_COMPONENTS_V2).withComponents(
-                    TextDisplay.of("Happy new month! Unfortunately, there are no known birthdays this month :confounded:."),
+                    TextDisplay.of("Happy $monthString! Unfortunately, there are no known birthdays this month :confounded:."),
                     TextDisplay.of(
                         "If you do have a birthday this month (or know someone who does), add it with " +
                                 "</birthday set:$birthdayCommandId> or </birthday suggest:$birthdayCommandId>!"
