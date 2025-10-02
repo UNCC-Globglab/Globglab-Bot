@@ -196,9 +196,9 @@ class BirthdayScheduler {
                 scheduler.shutdownNow()
             }
         } catch (e: InterruptedException) {
-            error(e)
             scheduler.shutdownNow()
             Thread.currentThread().interrupt()
+            error(e)
         }
     }
 }
